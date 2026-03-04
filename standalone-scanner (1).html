@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="lo">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>QR Check-in</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Lao:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#0f172a;font-family:'Noto Sans Lao',sans-serif;color:#f1f5f9}
+body{display:flex;flex-direction:column}
+#row-top{display:flex;flex:0 0 55%;min-height:0;border-bottom:2px solid #1e293b}
+#row-bot{display:flex;flex:0 0 45%;flex-direction:column;min-height:0;background:#080f1a}
+
+/* Camera */
+#cam-wrap{position:relative;flex:0 0 50%;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;border-right:1px solid #1e293b}
+#qr-video{width:100%;height:100%;object-fit:cover;display:block}
+#qr-canvas{display:none}
+.vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 48%,rgba(0,0,0,.65) 100%)}
+#scan-box{position:absolute;width:clamp(110px,26vmin,190px);height:clamp(110px,26vmin,190px);top:50%;left:50%;transform:translate(-50%,-50%);transition:box-shadow .25s}
+#scan-box>span{position:absolute;width:18px;height:18px;border-color:#f59e0b;border-style:solid;transition:border-color .25s}
+#scan-box>span:nth-child(1){top:0;left:0;border-width:3px 0 0 3px}
+#scan-box>span:nth-child(2){top:0;right:0;border-width:3px 3px 0 0}
+#scan-box>span:nth-child(3){bottom:0;left:0;border-width:0 0 3px 3px}
+#scan-box>span:nth-child(4){bottom:0;right:0;border-width:0 3px 3px 0}
+#scan-box.ok>span{border-color:#10b981!important}
+#scan-box.ok{box-shadow:0 0 0 3px rgba(16,185,129,.45)}
+#scan-box.out>span{border-color:#818cf8!important}
+#scan-box.out{box-shadow:0 0 0 3px rgba(129,140,248,.45)}
+#scan-box.dup>span{border-color:#f59e0b!important}
+#scan-box.blk>span{border-color:#f97316!important}
+#scan-box.err>span{border-color:#ef4444!important}
+#scan-box.err{box-shadow:0 0 0 3px rgba(239,68,68,.45)}
+.scan-line{position:absolute;left:4px;right:4px;height:2px;background:linear-gradient(90deg,transparent,#f59e0b,transparent);animation:smove 2s linear infinite;top:0}
+@keyframes smove{0%{top:0}100%{top:calc(100% - 2px)}}
+#cam-ovl{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.65rem;background:rgba(15,23,42,.85);z-index:5}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn-c{position:absolute;bottom:.55rem;z-index:6;background:rgba(30,41,59,.85);border:1px solid #334155;color:#94a3b8;border-radius:.5rem;font-family:inherit;font-size:.67rem;font-weight:700;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s;display:flex;align-items:center;gap:.3rem;padding:.3rem .6rem}
+#btn-rst{left:.55rem}
+#btn-flp{right:.55rem;width:2.1rem;height:2.1rem;border-radius:50%;font-size:.95rem;justify-content:center;padding:0}
+.btn-c:hover{background:#1e293b;color:#f1f5f9}
+#dbg{position:absolute;top:.4rem;left:.4rem;z-index:8;font-family:monospace;font-size:.63rem;color:#f59e0b;background:rgba(0,0,0,.55);padding:.2rem .45rem;border-radius:.35rem;pointer-events:none;line-height:1.6}
+
+/* Info Card */
+#info-card{flex:1;display:flex;flex-direction:column;background:#0f172a;border-left:1px solid #1e293b;overflow:hidden;position:relative}
+#sbar{display:flex;align-items:center;gap:.5rem;padding:.3rem .8rem;font-size:.68rem;font-weight:700;flex-shrink:0;border-bottom:1px solid #1e293b;transition:background .3s;background:#1e293b}
+#user-wrap{flex:1;display:flex;flex-direction:row;overflow:hidden;min-height:0}
+#photo-col{flex:0 0 45%;display:flex;align-items:center;justify-content:center;border-right:1px solid #1e293b;background:#080f1a;overflow:hidden}
+#photo-skel{width:100%;height:100%;background:#1e293b;display:flex;align-items:center;justify-content:center;color:#334155;font-size:3rem}
+#user-photo{width:100%;height:100%;object-fit:contain;display:none}
+#info-col{flex:1;display:flex;flex-direction:column;justify-content:space-evenly;padding:.6rem .8rem;overflow:hidden}
+.uname{font-size:clamp(1rem,2.8vw,1.3rem);font-weight:800;color:#f1f5f9;line-height:1.25}
+.uid-b{font-family:monospace;font-size:.62rem;color:#64748b;background:#1e293b;padding:.13rem .38rem;border-radius:.3rem}
+.ib{padding:.22rem 0;border-bottom:1px solid #1e293b22}
+.ib:last-of-type{border-bottom:none}
+.ilb{font-size:.6rem;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:.28rem}
+.iv{font-size:clamp(.8rem,2.1vw,1rem);color:#cbd5e1;font-weight:600}
+.iv.g{color:#10b981}.iv.m{font-family:monospace}
+.scts{font-size:.6rem;color:#475569;display:flex;align-items:center;gap:.3rem}
+
+/* Overlays */
+.ovl{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.55rem;padding:.9rem;text-align:center;background:#0f172a}
+.ovl.h{display:none}
+#idle{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;padding:1rem;text-align:center}
+#idle.h{display:none}
+.dots span{width:.38rem;height:.38rem;border-radius:50%;background:#1e293b;display:inline-block;animation:dot 1.4s infinite}
+.dots span:nth-child(2){animation-delay:.2s}
+.dots span:nth-child(3){animation-delay:.4s}
+@keyframes dot{0%,80%,100%{transform:scale(.8);opacity:.4}40%{transform:scale(1.2);opacity:1}}
+.oico{width:2.8rem;height:2.8rem;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.3rem}
+.r{color:#ef4444}.a{color:#f59e0b}.v{color:#818cf8}.o{color:#f97316}
+.oico.r{background:rgba(239,68,68,.15)}.oico.a{background:rgba(245,158,11,.15)}
+.oico.v{background:rgba(129,140,248,.15)}.oico.o{background:rgba(249,115,22,.15)}
+.otitle{font-size:clamp(.9rem,2.5vw,1.1rem);font-weight:800}
+.omsg{font-size:clamp(.73rem,1.7vw,.88rem);color:#94a3b8;max-width:92%}
+.ocode{font-family:monospace;font-size:.75rem;color:#475569;background:#1e293b;padding:.16rem .52rem;border-radius:.38rem}
+.obtn{margin-top:.35rem;padding:.42rem .95rem;border-radius:.55rem;font-family:inherit;font-size:.76rem;font-weight:700;cursor:pointer;border:none;display:flex;align-items:center;gap:.38rem}
+.obtn.r{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}
+.obtn.a{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.obtn.v{background:rgba(129,140,248,.15);color:#818cf8;border:1px solid rgba(129,140,248,.3)}
+.obtn.o{background:rgba(249,115,22,.15);color:#f97316;border:1px solid rgba(249,115,22,.3)}
+.obtn:hover{filter:brightness(1.2)}
+.cdb-wrap{position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.cdb-wrap.h{display:none}
+.cdb{height:100%;width:100%;transform-origin:left;transition:none}
+.cdb.g{background:#10b981}.cdb.a{background:#f59e0b}
+.cdb.r{background:#ef4444}.cdb.v{background:#818cf8}.cdb.o{background:#f97316}
+
+/* Table */
+#tbl-hd{display:flex;justify-content:space-between;align-items:center;padding:.4rem .9rem;border-bottom:1px solid #1e293b;background:#0a1220;flex-shrink:0}
+#tbl-hd h3{font-size:.78rem;font-weight:700;color:#94a3b8;display:flex;align-items:center;gap:.4rem}
+.tr{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.ctr{display:flex;align-items:center;gap:.4rem;background:#1e293b;border:1px solid #334155;padding:.22rem .65rem;border-radius:.4rem;font-size:.72rem;font-weight:800}
+.ctr .n{color:#10b981;font-size:.88rem}.ctr .no{color:#818cf8;font-size:.88rem}.ctr .t{color:#64748b}
+.bsm{background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:.26rem .6rem;border-radius:.4rem;font-family:inherit;font-size:.7rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:.3rem;transition:background .2s}
+.bsm:hover{background:#334155;color:#f1f5f9}
+#sync-btn{color:#f59e0b;border-color:rgba(245,158,11,.4);display:none}
+.tbl-sc{flex:1;overflow-y:auto}
+table{width:100%;border-collapse:collapse;font-size:clamp(.63rem,1.3vw,.77rem)}
+thead th{background:#080f1a;color:#64748b;font-weight:700;padding:.3rem .65rem;text-align:left;border-bottom:1px solid #1e293b;position:sticky;top:0;z-index:2;font-size:.64rem;text-transform:uppercase;letter-spacing:.04em}
+tbody td{padding:.27rem .65rem;border-bottom:1px solid #0f172a;color:#94a3b8;vertical-align:middle}
+tbody tr:hover td{background:#1e293b22}
+.empty{text-align:center;color:#334155;padding:1.2rem!important;font-size:.78rem}
+td.mono{font-family:monospace;font-size:.64rem;color:#475569}
+
+/* Setup Modal */
+#setup-modal{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:999;display:flex;align-items:center;justify-content:center}
+#setup-box{background:#1e293b;border-radius:1rem;padding:1.5rem;width:min(440px,95vw);display:flex;flex-direction:column;gap:.9rem;border:1px solid #334155}
+#setup-box h2{font-size:1rem;font-weight:800;color:#f1f5f9;display:flex;align-items:center;gap:.5rem}
+.setup-label{font-size:.72rem;color:#94a3b8;font-weight:700}
+#gas-inp{width:100%;background:#0f172a;border:1px solid #334155;color:#f1f5f9;padding:.7rem .9rem;border-radius:.6rem;font-family:monospace;font-size:.78rem;outline:none;transition:border-color .2s}
+#gas-inp:focus{border-color:#3b82f6}
+.setup-hint{font-size:.68rem;color:#475569;line-height:1.7;background:#0f172a;border-radius:.5rem;padding:.6rem .8rem;border:1px solid #1e293b}
+.setup-hint code{color:#f59e0b;font-family:monospace;font-size:.75rem}
+#setup-err{font-size:.72rem;color:#ef4444;display:none;align-items:center;gap:.3rem}
+#btn-save{background:#2563eb;color:#fff;border:none;border-radius:.6rem;padding:.7rem;font-family:inherit;font-size:.85rem;font-weight:700;cursor:pointer;width:100%;transition:background .2s}
+#btn-save:hover{background:#1d4ed8}
+#btn-test{background:#0f172a;color:#94a3b8;border:1px solid #334155;border-radius:.6rem;padding:.6rem;font-family:inherit;font-size:.78rem;font-weight:700;cursor:pointer;width:100%;transition:background .2s}
+#btn-test:hover{background:#1e293b;color:#f1f5f9}
+#test-result{font-size:.72rem;padding:.5rem .8rem;border-radius:.5rem;display:none}
+#test-result.ok{background:rgba(16,185,129,.1);color:#10b981;border:1px solid rgba(16,185,129,.2)}
+#test-result.err{background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
+
+/* Offline banner */
+#ofl{display:none;position:fixed;bottom:0;left:0;right:0;z-index:100;background:#7f1d1d;color:#fca5a5;font-size:.72rem;font-weight:700;padding:.35rem .9rem;text-align:center}
+</style>
+</head>
+<body>
+
+<!-- ══ Setup Modal ══ -->
+<div id="setup-modal">
+  <div id="setup-box">
+    <h2><i class="fa-solid fa-plug" style="color:#3b82f6"></i> ຕັ້ງຄ່າ GAS Web App URL</h2>
+
+    <div class="setup-hint">
+      ໄປທີ່ GAS Editor → <b>Deploy</b> → <b>Manage deployments</b><br>
+      ສ ຫຼື Deploy ໃໝ່ດ້ວຍ:<br>
+      &nbsp;• Execute as: <code>Me</code><br>
+      &nbsp;• Who has access: <code>Anyone</code><br>
+      ສ ຈາກນັ້ນ copy URL ມາວາງຂ້າງລຸ່ມ
+    </div>
+
+    <div>
+      <div class="setup-label">Web App URL</div>
+      <input id="gas-inp" type="url"
+        placeholder="https://script.google.com/macros/s/.../exec"
+        autocomplete="off" spellcheck="false">
+    </div>
+
+    <div id="setup-err"><i class="fa-solid fa-triangle-exclamation"></i> <span id="setup-err-msg"></span></div>
+
+    <button id="btn-test" onclick="testUrl()">
+      <i class="fa-solid fa-vial"></i> ທົດສອບການເຊື່ອມຕໍ່
+    </button>
+    <div id="test-result"></div>
+
+    <button id="btn-save" onclick="saveUrl()">
+      <i class="fa-solid fa-floppy-disk"></i> ບັນທຶກ ແລະ ໂຫຼດຂໍ້ມູນ
+    </button>
+  </div>
+</div>
+
+<!-- ══ Main ══ -->
+<div id="row-top">
+  <!-- Camera -->
+  <div id="cam-wrap">
+    <video id="qr-video" autoplay playsinline muted></video>
+    <canvas id="qr-canvas"></canvas>
+    <div class="vig"></div>
+    <div id="scan-box"><span></span><span></span><span></span><span></span><div class="scan-line"></div></div>
+    <div id="cam-ovl">
+      <i class="fa-solid fa-circle-notch fa-2x spin" style="color:#f59e0b"></i>
+      <span style="font-size:.78rem;font-weight:700">ກຳລັງເປີດກ້ອງ...</span>
+    </div>
+    <button class="btn-c" id="btn-rst" onclick="manualReset()"><i class="fa-solid fa-arrows-rotate"></i> Reset</button>
+    <button class="btn-c" id="btn-flp" onclick="switchCam()"><i class="fa-solid fa-camera-rotate"></i></button>
+    <div id="dbg"></div>
+  </div>
+
+  <!-- Info Card -->
+  <div id="info-card">
+    <div id="sbar">
+      <i class="fa-solid fa-circle-notch fa-spin" style="color:#64748b"></i>
+      <span id="stxt">ກຳລັງໂຫຼດ...</span>
+      <button id="sync-btn" class="bsm" onclick="flushQueue()" style="margin-left:auto;color:#f59e0b;border-color:rgba(245,158,11,.4)">
+        <i class="fa-solid fa-arrow-up-from-bracket"></i> <span id="sync-cnt">0</span> ລໍ
+      </button>
+    </div>
+
+    <div id="user-wrap">
+      <div id="photo-col">
+        <div id="photo-skel"><i class="fa-solid fa-user"></i></div>
+        <img id="user-photo" onerror="this.style.display='none';_e('photo-skel').style.display='flex'">
+      </div>
+      <div id="info-col">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.4rem">
+          <div class="uname" id="un">---</div>
+          <span class="uid-b" id="uid">#------</span>
+        </div>
+        <div class="ib"><div class="ilb"><i class="fa-solid fa-building"></i> ພາກສ່ວນ</div><div class="iv g" id="uorg">---</div></div>
+        <div class="ib"><div class="ilb"><i class="fa-solid fa-briefcase"></i> ຕຳແໜ່ງ</div><div class="iv" id="upos">---</div></div>
+        <div class="ib"><div class="ilb"><i class="fa-solid fa-phone"></i> ເບີໂທ</div><div class="iv m" id="uphone">---</div></div>
+        <div class="scts" id="scts"><i class="fa-solid fa-clock"></i> ລໍຖ້າການສະແກນ...</div>
+      </div>
+      <div class="cdb-wrap h" id="cdw-ok" style="position:absolute;bottom:0;left:0;right:0"><div class="cdb g" id="cdb-ok"></div></div>
+    </div>
+
+    <!-- Idle -->
+    <div id="idle">
+      <div style="font-size:clamp(2rem,5vw,3rem);color:#1e293b"><i class="fa-solid fa-qrcode"></i></div>
+      <div>
+        <div style="font-size:clamp(.82rem,2vw,.98rem);font-weight:800;color:#94a3b8">ກະລຸນາສະແກນ QR Code</div>
+        <div style="font-size:clamp(.66rem,1.5vw,.8rem);color:#475569;margin-top:.25rem">ຊີ້ກ້ອງໄປທີ່ QR ຂອງຜູ້ເຂົ້າຮ່ວມ</div>
+      </div>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </div>
+
+    <!-- Err overlay -->
+    <div class="ovl h" id="ovl-err">
+      <div class="oico r"><i class="fa-solid fa-user-slash"></i></div>
+      <div class="otitle r">ບໍ່ພົບຂໍ້ມູນ</div>
+      <div class="omsg" id="err-msg">ID ນີ້ ຍັງບໍ່ໄດ້ລົງທະບຽນ</div>
+      <div class="ocode" id="err-code">#------</div>
+      <button class="obtn r" onclick="dismiss()"><i class="fa-solid fa-arrows-rotate"></i> ສະແກນໃໝ່</button>
+      <div class="cdb-wrap"><div class="cdb r" id="cdb-err"></div></div>
+    </div>
+
+    <!-- Dup overlay -->
+    <div class="ovl h" id="ovl-dup">
+      <div class="oico a"><i class="fa-solid fa-clock-rotate-left"></i></div>
+      <div class="otitle a">ເຊັກອິນຊ້ຳ!</div>
+      <div class="omsg" id="dup-nm">---</div>
+      <div class="ocode" id="dup-t">ເວລາ --:--</div>
+      <div style="font-size:.78rem;color:#64748b" id="dup-rem"></div>
+      <button class="obtn a" onclick="dismiss()"><i class="fa-solid fa-arrows-rotate"></i> ສະແກນໃໝ່</button>
+      <div class="cdb-wrap"><div class="cdb a" id="cdb-dup"></div></div>
+    </div>
+
+    <!-- Out overlay -->
+    <div class="ovl h" id="ovl-out">
+      <div class="oico v"><i class="fa-solid fa-right-from-bracket"></i></div>
+      <div class="otitle v">CHECK-OUT ✓</div>
+      <div class="omsg" id="out-nm">---</div>
+      <div class="ocode" id="out-t">ເວລາ --:--</div>
+      <button class="obtn v" onclick="dismiss()"><i class="fa-solid fa-arrows-rotate"></i> ສະແກນໃໝ່</button>
+      <div class="cdb-wrap"><div class="cdb v" id="cdb-out"></div></div>
+    </div>
+
+    <!-- Blocked overlay -->
+    <div class="ovl h" id="ovl-blk">
+      <div class="oico o"><i class="fa-solid fa-hourglass-half"></i></div>
+      <div class="otitle o">ຍັງ Check-out ບໍ່ໄດ້</div>
+      <div class="omsg" id="blk-msg">ຕ້ອງຢູ່ຢ່າງຕ່ຳ 2 ຊົ່ວໂມງ</div>
+      <div class="ocode" id="blk-rem"></div>
+      <button class="obtn o" onclick="dismiss()"><i class="fa-solid fa-arrows-rotate"></i> ສະແກນໃໝ່</button>
+      <div class="cdb-wrap"><div class="cdb o" id="cdb-blk"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="ofl"><i class="fa-solid fa-wifi"></i> Offline — ບັນທຶກ local, ຈະ sync ເມື່ອ network ກັບ</div>
+
+<!-- Table -->
+<div id="row-bot">
+  <div style="display:flex;flex-direction:column;flex:1;min-height:0">
+    <div id="tbl-hd">
+      <h3><i class="fa-solid fa-list-check" style="color:#2563eb"></i> ປະຫວັດ</h3>
+      <div class="tr">
+        <div class="ctr">
+          <i class="fa-solid fa-user-check" style="color:#10b981;font-size:.7rem"></i>
+          <span class="n" id="ci-in">0</span><span class="t" style="font-size:.65rem">ໃນ ·</span>
+          <i class="fa-solid fa-right-from-bracket" style="color:#818cf8;font-size:.7rem"></i>
+          <span class="no" id="ci-out">0</span><span class="t" style="font-size:.65rem">ອອກ /</span>
+          <span class="t" id="ci-tot">0</span><span class="t" style="font-size:.65rem">ຄົນ</span>
+        </div>
+        <button class="bsm" onclick="loadCache(true)"><i class="fa-solid fa-rotate-right"></i> Sync</button>
+        <button class="bsm" onclick="showSetup()"><i class="fa-solid fa-gear"></i></button>
+      </div>
+    </div>
+    <div class="tbl-sc">
+      <table>
+        <thead><tr>
+          <th style="width:13%">ເວລາ</th><th style="width:12%">ID</th>
+          <th style="width:32%">ຊື່</th><th style="width:25%">ພາກສ່ວນ</th>
+          <th style="width:18%;text-align:center">ສະຖານະ</th>
+        </tr></thead>
+        <tbody id="tbody"><tr><td colspan="5" class="empty">ກຳລັງໂຫຼດ...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+//  STANDALONE OFFLINE-FIRST SCANNER
+//  ● JSONP ແທນ fetch() → ບໍ່ມີ CORS error
+//  ● ກວດ ID local ທັນທີ (offline capable)
+//  ● Sync queue ເມື່ອ network ກັບ
+// ════════════════════════════════════════════════════════════════
+
+var BLOCK_CI_H = 4;
+var BLOCK_CO_H = 2;
+var CACHE_TTL  = 3600000;   // 1hr
+var JSONP_TIMEOUT = 12000;
+
+var KEY_URL   = 'sc_url';
+var KEY_REG   = 'sc_reg_v1';
+var KEY_CI    = 'sc_ci_v1';
+var KEY_QUEUE = 'sc_queue_v1';
+
+var GAS_URL = '';
+var _reg = {}, _ciMap = {}, _queue = [], _ciRows = [];
+var _ready = false, _online = navigator.onLine !== false;
+var _scanning = true, _busy = false, _stream = null;
+var _facingMode = 'environment', _timer = null, _dbnc = null;
+var _fpsF = 0, _fpsL = 0, _lastMs = 0, _lastFr = 0;
+var _det = null, _nat = false, _jsqC = null, _jsqX = null;
+var _actx = null, _cbIdx = 0;
+
+// ── localStorage ──────────────────────────────────────────────
+var _ls = (function(){
+  var ok=false, m={};
+  try{localStorage.setItem('_t','1');localStorage.removeItem('_t');ok=true;}catch(e){}
+  return {
+    get:function(k){if(ok)try{return localStorage.getItem(k);}catch(e){}return m[k]!==undefined?m[k]:null;},
+    set:function(k,v){if(ok)try{localStorage.setItem(k,v);return;}catch(e){}m[k]=v;},
+    del:function(k){if(ok)try{localStorage.removeItem(k);}catch(e){}delete m[k];}
+  };
+})();
+
+function _e(id){return document.getElementById(id);}
+
+// ════════════════════════════════════════════════════════════════
+//  JSONP  — ແທນ fetch(), ແກ້ CORS ໄດ້ 100%
+//
+//  GAS doGet() ເຫັນ ?callback=_cb_123 → return _cb_123({...})
+//  Browser load <script src="GAS_URL?api=cache&callback=_cb_123">
+//  → ຮຽກ _cb_123 function ອັດຕະໂນມັດ → ໄດ້ data
+// ════════════════════════════════════════════════════════════════
+function _jsonp(params, timeoutMs) {
+  return new Promise(function(resolve, reject) {
+    var cbName = '_cb_' + (++_cbIdx) + '_' + Date.now();
+    var script = document.createElement('script');
+    var tid = setTimeout(function() {
+      cleanup();
+      reject(new Error('timeout'));
+    }, timeoutMs || JSONP_TIMEOUT);
+
+    function cleanup() {
+      clearTimeout(tid);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    window[cbName] = function(data) {
+      cleanup();
+      resolve(data);
+    };
+
+    params.callback = cbName;
+    var qs = Object.keys(params).map(function(k) {
+      return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+    }).join('&');
+
+    script.onerror = function() { cleanup(); reject(new Error('script load failed')); };
+    script.src = GAS_URL + '?' + qs;
+    document.head.appendChild(script);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SETUP MODAL
+// ════════════════════════════════════════════════════════════════
+
+function showSetup() {
+  _e('gas-inp').value = GAS_URL || '';
+  _e('test-result').style.display = 'none';
+  _e('setup-err').style.display = 'none';
+  _e('setup-modal').style.display = 'flex';
+}
+function hideSetup() { _e('setup-modal').style.display = 'none'; }
+
+function testUrl() {
+  var url = _e('gas-inp').value.trim();
+  var res = _e('test-result');
+  res.style.display = 'none';
+  if (!url) { _showSetupErr('ກະລຸນາໃສ່ URL'); return; }
+  if (!url.startsWith('https://script.google.com')) { _showSetupErr('URL ບໍ່ຖືກຕ້ອງ'); return; }
+
+  _e('btn-test').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ກຳລັງທົດສອບ...';
+  _e('btn-test').disabled = true;
+  GAS_URL = url;   // ຕັ້ງຊົ່ວຄາວ ເພື່ອ test
+
+  _jsonp({ api: 'cache' }, 10000)
+    .then(function(data) {
+      _e('btn-test').innerHTML = '<i class="fa-solid fa-vial"></i> ທົດສອບການເຊື່ອມຕໍ່';
+      _e('btn-test').disabled = false;
+      if (data && data.ok) {
+        res.className = 'ok'; res.style.display = 'block';
+        res.innerHTML = '<i class="fa-solid fa-circle-check"></i> ເຊື່ອມຕໍ່ສຳເລັດ — '
+          + (data.total || 0) + ' ຄົນ, CI: ' + (data.ciHistory||[]).length + ' ລາຍການ';
+      } else {
+        res.className = 'err'; res.style.display = 'block';
+        res.textContent = 'Server ຕອບ: ' + JSON.stringify(data);
+      }
+    })
+    .catch(function(e) {
+      _e('btn-test').innerHTML = '<i class="fa-solid fa-vial"></i> ທົດສອບການເຊື່ອມຕໍ່';
+      _e('btn-test').disabled = false;
+      GAS_URL = '';
+      res.className = 'err'; res.style.display = 'block';
+      res.innerHTML = '<i class="fa-solid fa-xmark"></i> '
+        + (e.message === 'timeout' ? 'Timeout — ກວດ URL ຫຼື Deploy setting' : e.message);
+    });
+}
+
+function saveUrl() {
+  var url = _e('gas-inp').value.trim();
+  if (!url) { _showSetupErr('ກະລຸນາໃສ່ URL'); return; }
+  if (!url.startsWith('https://script.google.com')) { _showSetupErr('URL ຕ້ອງຂຶ້ນຕົ້ນດ້ວຍ https://script.google.com'); return; }
+  GAS_URL = url;
+  _ls.set(KEY_URL, url);
+  hideSetup();
+  loadCache(true);
+}
+
+function _showSetupErr(msg) {
+  var e = _e('setup-err'), m = _e('setup-err-msg');
+  if (m) m.textContent = msg;
+  if (e) e.style.display = 'flex';
+}
+
+// ════════════════════════════════════════════════════════════════
+//  CACHE
+// ════════════════════════════════════════════════════════════════
+
+function _saveReg(list) {
+  try {
+    _ls.set(KEY_REG, JSON.stringify({ ts: Date.now(), data: list.map(function(u){
+      return {id:u.id,name:u.name,gender:u.gender,phone:u.phone||'',
+              email:u.email||'',org:u.org,pos:u.pos,photo:u.photo||''};
+    })}));
+  } catch(e) {}
+}
+function _loadReg() {
+  try {
+    var p = JSON.parse(_ls.get(KEY_REG)||'null');
+    if (!p||!p.data||(Date.now()-(p.ts||0))>CACHE_TTL) return null;
+    return p.data;
+  } catch(e){return null;}
+}
+function _saveCi() {
+  try{_ls.set(KEY_CI,JSON.stringify({ts:Date.now(),map:_ciMap}));}catch(e){}
+}
+function _loadCi() {
+  try{var p=JSON.parse(_ls.get(KEY_CI)||'null');return(p&&p.map)?p.map:{};}catch(e){return{};}
+}
+function _saveQ(){try{_ls.set(KEY_QUEUE,JSON.stringify(_queue));}catch(e){}}
+function _loadQ(){try{return JSON.parse(_ls.get(KEY_QUEUE)||'[]');}catch(e){return[];}}
+function _buildMap(list){_reg={};list.forEach(function(u){if(u.id)_reg[u.id]=u;});}
+function _mergeCi(rows){
+  rows.forEach(function(r){
+    if(!r.id)return;
+    if(!_ciMap[r.id])_ciMap[r.id]=[];
+    var ex=_ciMap[r.id].some(function(x){return x.ts===r.time&&x.action===r.action;});
+    if(!ex)_ciMap[r.id].push({action:r.action||'CHECK-IN',ts:r.time||''});
+  });
+  _saveCi();
+}
+
+// ── ໂຫຼດ cache ─────────────────────────────────────────────────
+var _lRetry = 0;
+function loadCache(force) {
+  if (!GAS_URL) { showSetup(); return; }
+  _setSbar('loading');
+
+  if (!force) {
+    var st = _loadReg();
+    if (st&&st.length) {
+      _buildMap(st); _ciMap=_loadCi(); _ready=true;
+      _setSbar('ready',st.length); _e('ci-tot').textContent=st.length;
+    }
+  }
+
+  _jsonp({ api: 'cache' }, 12000)
+    .then(function(data) {
+      if (!data.ok) throw new Error(data.message||'server error');
+      var list = data.registrants||[];
+      _buildMap(list); _saveReg(list);
+      _ciMap = _loadCi(); _mergeCi(data.ciHistory||[]);
+      _ciRows = (data.ciHistory||[]).slice(0,200);
+      _renderTbl(); _ready=true; _lRetry=0;
+      _e('ci-tot').textContent = list.length;
+      _setSbar('ready', list.length);
+      if (_queue.length&&_online) setTimeout(flushQueue,500);
+      setTimeout(function(){loadCache(false);}, 5*60*1000);
+    })
+    .catch(function(e) {
+      console.warn('loadCache:', e.message);
+      _online = false;
+      _e('ofl').style.display = 'block';
+      if (!_ready) {
+        var st = _loadReg();
+        if (st&&st.length) {
+          _buildMap(st); _ciMap=_loadCi(); _ready=true;
+          _setSbar('offline'); _e('ci-tot').textContent=st.length;
+          toast('Offline — cache '+st.length+' ຄົນ','warn');
+        } else {
+          _setSbar('error', e.message==='timeout'?'Timeout — ກວດ URL':'ໂຫຼດຜິດພາດ');
+          toast('ກວດ GAS URL ໃນ ⚙ Settings','err');
+        }
+      } else { _setSbar('offline'); }
+      if (_lRetry < 5) { _lRetry++; setTimeout(function(){loadCache(false);},20000); }
+    });
+}
+
+// ── Sync queue ─────────────────────────────────────────────────
+var _flush = false;
+function flushQueue() {
+  if (_flush||!_queue.length||!_online||!GAS_URL) return;
+  _flush = true; _setSbar('syncing',_queue.length);
+  var item = _queue[0]; item.attempts = (item.attempts||0)+1;
+  _jsonp({ api:'checkin', token:item.token }, 10000)
+    .then(function(data) {
+      _flush=false; _queue.shift(); _saveQ(); _updSyncBtn();
+      if(_queue.length) setTimeout(flushQueue,300);
+      else _setSbar('ready',Object.keys(_reg).length);
+    })
+    .catch(function(e){
+      _flush=false; _online=false;
+      _e('ofl').style.display='block'; _setSbar('offline');
+      setTimeout(function(){if(navigator.onLine){_online=true;flushQueue();}},15000);
+    });
+}
+function _enq(token,user,action){
+  _queue.push({token:token,user:user,action:action,ts:new Date().toISOString(),attempts:0});
+  _saveQ(); _updSyncBtn();
+}
+function _updSyncBtn(){
+  var b=_e('sync-btn'),c=_e('sync-cnt');
+  if(!b)return;
+  b.style.display=_queue.length?'flex':'none';
+  if(c)c.textContent=_queue.length;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  STATUS BAR
+// ════════════════════════════════════════════════════════════════
+
+function _setSbar(state, extra) {
+  var bar=_e('sbar'); if(!bar)return;
+  var ico={loading:'<i class="fa-solid fa-circle-notch fa-spin" style="color:#64748b"></i>',
+    ready:'<i class="fa-solid fa-bolt" style="color:#10b981"></i>',
+    offline:'<i class="fa-solid fa-wifi" style="color:#ef4444"></i>',
+    syncing:'<i class="fa-solid fa-arrow-up-from-bracket fa-spin" style="color:#f59e0b"></i>',
+    error:'<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444"></i>'};
+  var msg={loading:'ກຳລັງໂຫຼດ...',
+    ready:'Offline-Ready ✓ — '+(extra||0)+' ຄົນ',
+    offline:'Offline — local cache',
+    syncing:'Syncing '+(extra||0)+'...',
+    error:'ຜິດພາດ: '+(extra||'')};
+  var bg={loading:'#1e293b',ready:'rgba(16,185,129,.08)',offline:'rgba(239,68,68,.1)',
+    syncing:'rgba(245,158,11,.08)',error:'rgba(239,68,68,.12)'};
+  bar.style.background = bg[state]||'#1e293b';
+  bar.innerHTML = (ico[state]||'')+' <span id="stxt">'+(msg[state]||'')+'</span>'
+    +'<button id="sync-btn" class="bsm" onclick="flushQueue()" style="margin-left:auto;color:#f59e0b;border-color:rgba(245,158,11,.4);'
+    +(_queue.length?'':'display:none')+'"><i class="fa-solid fa-arrow-up-from-bracket"></i>'
+    +' <span id="sync-cnt">'+_queue.length+'</span> ລໍ</button>';
+}
+
+// ════════════════════════════════════════════════════════════════
+//  LOCAL CHECK-IN
+// ════════════════════════════════════════════════════════════════
+
+function _localCI(id) {
+  var user=_reg[id]; if(!user)return{found:false};
+  var hist=_ciMap[id]||[];
+  var last=hist.length?hist[hist.length-1]:null;
+  var lastAct=last?last.action:null, lastTs=last?new Date(last.ts):null;
+  var now=new Date();
+  var next=(!lastAct||lastAct==='CHECK-OUT')?'CHECK-IN':'CHECK-OUT';
+
+  if(next==='CHECK-IN'&&lastAct==='CHECK-OUT'){
+    var lci=null;
+    for(var i=hist.length-1;i>=0;i--){if(hist[i].action==='CHECK-IN'){lci=new Date(hist[i].ts);break;}}
+    if(lci&&(now-lci)<BLOCK_CI_H*3600000)
+      return{found:true,user:user,dup:true,next:next,lastCI:_ft(lci),
+        rem:Math.ceil((BLOCK_CI_H*3600000-(now-lci))/60000)};
+  }
+  if(next==='CHECK-OUT'&&lastTs){
+    var df=now-lastTs;
+    if(df<BLOCK_CO_H*3600000)
+      return{found:true,user:user,blk:true,next:next,lastCI:_ft(lastTs),
+        rem:Math.ceil((BLOCK_CO_H*3600000-df)/60000)};
+  }
+  if(!_ciMap[id])_ciMap[id]=[];
+  _ciMap[id].push({action:next,ts:now.toISOString()});
+  _saveCi();
+  return{found:true,user:user,next:next,dup:false,blk:false};
+}
+function _ft(d){try{return d.toLocaleTimeString('lo-LA',{hour:'2-digit',minute:'2-digit'});}catch(e){return'--:--';}}
+
+// ════════════════════════════════════════════════════════════════
+//  HANDLE SCAN
+// ════════════════════════════════════════════════════════════════
+
+function handleScan(raw) {
+  _busy=true; _scanning=false;
+  var token=raw.trim(), id=token.split('|')[0];
+  var lc=_localCI(id);
+
+  if(!lc.found){
+    _beep('err');_vib([100,50,100]);_sbState('err');
+    _e('err-msg').textContent=_ready?'ID ນີ້ ຍັງບໍ່ໄດ້ລົງທະບຽນ':'Cache ຍັງໂຫຼດບໍ່ສຳເລັດ';
+    _e('err-code').textContent='#'+id;
+    _showOvl('ovl-err');_cd('cdb-err',5000,'r');_timer=setTimeout(dismiss,5000);return;
+  }
+  if(lc.dup){
+    _beep('dup');_vib([150]);_sbState('dup');
+    _e('dup-nm').textContent=lc.user.name;
+    _e('dup-t').textContent='ເຊັກອິນເວລາ '+lc.lastCI;
+    _e('dup-rem').textContent=lc.rem?'ລໍຖ້າອີກ '+lc.rem+' ນາທີ':'';
+    _showOvl('ovl-dup');_cd('cdb-dup',5000,'a');_timer=setTimeout(dismiss,5000);return;
+  }
+  if(lc.blk){
+    _beep('blk');_vib([80,40,80]);_sbState('blk');
+    _e('blk-msg').textContent='ຕ້ອງຢູ່ຢ່າງຕ່ຳ '+BLOCK_CO_H+' ຊົ່ວໂມງ';
+    _e('blk-rem').textContent=lc.rem?'ອີກ '+lc.rem+' ນາທີ':'';
+    _showOvl('ovl-blk');_cd('cdb-blk',5000,'o');_timer=setTimeout(dismiss,5000);return;
+  }
+
+  var isOut=lc.next==='CHECK-OUT';
+  if(isOut){_beep('out');_vib([60,30,120]);_sbState('out');}
+  else{_beep('ok');_vib([80]);_sbState('ok');}
+  _showUser(lc.user); _addRow(lc.user,lc.next);
+  if(isOut){
+    _e('out-nm').textContent=lc.user.name;
+    _e('out-t').textContent='ເວລາ '+_ft(new Date());
+    _showOvl('ovl-out');_cd('cdb-out',5000,'v');_timer=setTimeout(dismiss,5000);
+  } else {
+    _cd('cdb-ok',5000,'g');_timer=setTimeout(manualReset,5000);
+  }
+
+  // Sync to server via JSONP
+  if(_online){
+    _jsonp({api:'checkin',token:token},10000)
+      .then(function(d){_e('ofl').style.display='none';_online=true;})
+      .catch(function(e){_online=false;_e('ofl').style.display='block';_enq(token,lc.user,lc.next);_setSbar('offline');});
+  } else {
+    _enq(token,lc.user,lc.next);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  CAMERA
+// ════════════════════════════════════════════════════════════════
+
+function initCam(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){_camMsg('ບຣາວເຊີນີ້ບໍ່ຮອງຮັບກ້ອງ');return;}
+  navigator.mediaDevices.getUserMedia({video:{facingMode:_facingMode,width:{ideal:1280},height:{ideal:720}}})
+    .then(function(s){
+      _stream=s;var v=_e('qr-video');v.srcObject=s;
+      v.onloadedmetadata=function(){
+        v.play();_e('cam-ovl').style.display='none';
+        if('BarcodeDetector' in window){try{_det=new BarcodeDetector({formats:['qr_code']});_nat=true;}catch(e){}}
+        requestAnimationFrame(scanLoop);
+      };
+    })
+    .catch(function(e){_camMsg('ເປີດກ້ອງບໍ່ໄດ້: '+e.message);});
+}
+function _stopCam(){
+  if(_stream){_stream.getTracks().forEach(function(t){t.stop();});_stream=null;}
+  if(_actx){try{_actx.close();}catch(e){}_actx=null;}
+}
+window.addEventListener('beforeunload',_stopCam);
+window.addEventListener('pagehide',_stopCam);
+function switchCam(){
+  _facingMode=_facingMode==='environment'?'user':'environment';_stopCam();
+  var o=_e('cam-ovl');o.style.display='flex';
+  o.innerHTML='<i class="fa-solid fa-circle-notch fa-2x spin" style="color:#f59e0b"></i><span style="font-size:.78rem;font-weight:700">ກຳລັງສຳຮອງກ້ອງ...</span>';
+  initCam();
+}
+function _camMsg(m){var o=_e('cam-ovl');if(!o)return;o.style.display='flex';
+  o.innerHTML='<i class="fa-solid fa-circle-exclamation fa-2x" style="color:#ef4444"></i><span style="font-size:.78rem;font-weight:700">'+m+'</span>';}
+
+function scanLoop(){
+  if(!_scanning)return; _dbg();
+  var v=_e('qr-video');
+  if(!v||v.readyState!==v.HAVE_ENOUGH_DATA){requestAnimationFrame(scanLoop);return;}
+  var vw=v.videoWidth,vh=v.videoHeight,r=0.5;
+  var cw=Math.round(vw*r),ch=Math.round(vh*r),cx=Math.round((vw-cw)/2),cy=Math.round((vh-ch)/2);
+  if(_nat&&_det){
+    _det.detect(v).then(function(c){
+      if(!_scanning)return;
+      if(c.length&&!_busy)handleScan(c[0].rawValue);else requestAnimationFrame(scanLoop);
+    }).catch(function(){requestAnimationFrame(scanLoop);});
+  } else {
+    var now=performance.now();
+    if(now-_lastFr<66){requestAnimationFrame(scanLoop);return;}
+    _lastFr=now;
+    if(!_jsqC){_jsqC=_e('qr-canvas');_jsqX=_jsqC.getContext('2d',{willReadFrequently:true});}
+    if(_jsqC.width!==cw||_jsqC.height!==ch){_jsqC.width=cw;_jsqC.height=ch;}
+    _jsqX.drawImage(v,cx,cy,cw,ch,0,0,cw,ch);
+    var img=_jsqX.getImageData(0,0,cw,ch);
+    var code=jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+    if(code&&code.data&&!_busy)handleScan(code.data);else requestAnimationFrame(scanLoop);
+  }
+}
+function _dbg(){
+  _fpsF++;var now=performance.now();
+  if(now-_fpsL>=1000){var fps=Math.round(_fpsF*1000/(now-_fpsL));_fpsF=0;_fpsL=now;
+    var d=_e('dbg');if(d)d.textContent=(_nat?'⚡':'🔧')+' FPS:'+fps+(_lastMs?' '+_lastMs+'ms':'')+(_ready?' 📦'+Object.keys(_reg).length:' ⏳');}
+}
+
+// ════════════════════════════════════════════════════════════════
+//  UI
+// ════════════════════════════════════════════════════════════════
+
+var OVLS=['idle','ovl-err','ovl-dup','ovl-out','ovl-blk'];
+function _showOvl(id){OVLS.forEach(function(x){var e=_e(x);if(e)e.classList.add('h');});var e=_e(id);if(e)e.classList.remove('h');}
+function _showUser(u){
+  if(!u)return;
+  OVLS.forEach(function(x){var e=_e(x);if(e)e.classList.add('h');});
+  var ph=_e('user-photo'),sk=_e('photo-skel');ph.style.display='none';if(sk)sk.style.display='flex';
+  _e('un').textContent=u.name||'---';_e('uid').textContent='#'+(u.id||'------');
+  _e('uorg').textContent=u.org||'---';_e('upos').textContent=u.pos||'---';
+  _e('uphone').textContent=u.phone||'---';
+  var ts=_e('scts');if(ts)ts.innerHTML='<i class="fa-solid fa-clock"></i> ສະແກນ: '+new Date().toLocaleTimeString('lo-LA');
+  if(u.photo){var tmp=new Image();tmp.crossOrigin='anonymous';
+    tmp.onload=function(){ph.src=u.photo;ph.style.display='';if(sk)sk.style.display='none';};
+    tmp.onerror=function(){};tmp.src=u.photo;}
+}
+function _sbState(s){var b=_e('scan-box');if(!b)return;b.className='';if(s!=='idle')b.classList.add(s);}
+function _cd(id,ms,cls){
+  var bar=_e(id);if(!bar)return;var wp=bar.parentElement;
+  if(wp)wp.classList.remove('h');
+  bar.className='cdb '+(cls||'');bar.style.transition='none';bar.style.transform='scaleX(1)';
+  bar.offsetWidth;bar.style.transition='transform '+(ms/1000)+'s linear';bar.style.transform='scaleX(0)';
+}
+function _stopCd(id){var b=_e(id);if(!b)return;var w=b.parentElement;
+  b.style.transition='none';b.style.transform='scaleX(1)';if(w)w.classList.add('h');}
+function dismiss(){
+  if(_timer){clearTimeout(_timer);_timer=null;}
+  ['cdb-ok','cdb-err','cdb-dup','cdb-out','cdb-blk'].forEach(_stopCd);
+  OVLS.forEach(function(x){var e=_e(x);if(e)e.classList.add('h');});
+  _e('idle').classList.remove('h');_sbState('idle');_scanning=true;_busy=false;
+  requestAnimationFrame(scanLoop);
+}
+function manualReset(){dismiss();}
+
+function _addRow(u,action){
+  _ciRows.unshift({time:_ft(new Date()),id:u.id,name:u.name,org:u.org,action:action});
+  clearTimeout(_dbnc);_dbnc=setTimeout(_renderTbl,80);
+}
+function _renderTbl(){
+  var tb=_e('tbody');if(!tb)return;
+  var la={};for(var i=_ciRows.length-1;i>=0;i--){var r=_ciRows[i];if(r.id&&!la[r.id])la[r.id]=r.action||'CHECK-IN';}
+  var inC=0,outC=0;Object.keys(la).forEach(function(k){if(la[k]==='CHECK-IN')inC++;else outC++;});
+  _e('ci-in').textContent=inC;_e('ci-out').textContent=outC;
+  if(!_ciRows.length){tb.innerHTML='<tr><td colspan="5" class="empty">ຍັງບໍ່ມີ Check-in</td></tr>';return;}
+  var fr=document.createDocumentFragment();
+  _ciRows.slice(0,100).forEach(function(r){
+    var out=(r.action||'CHECK-IN')==='CHECK-OUT';
+    var tr=document.createElement('tr');
+    [{v:r.time||'--:--'},{v:r.id||'',c:'mono'},{v:r.name||''},{v:r.org||'',s:'color:#64748b'}].forEach(function(x){
+      var td=document.createElement('td');td.textContent=x.v;if(x.c)td.className=x.c;if(x.s)td.style.cssText=x.s;tr.appendChild(td);
+    });
+    var td5=document.createElement('td');td5.style.textAlign='center';
+    var pill=document.createElement('span');
+    pill.style.cssText=out?'background:rgba(129,140,248,.15);color:#818cf8;border:1px solid rgba(129,140,248,.3);padding:2px 6px;border-radius:999px;font-size:.65rem;font-weight:700'
+      :'background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3);padding:2px 6px;border-radius:999px;font-size:.65rem;font-weight:700';
+    pill.textContent=out?'CHECK-OUT':'CHECK-IN';td5.appendChild(pill);tr.appendChild(td5);fr.appendChild(tr);
+  });
+  tb.innerHTML='';tb.appendChild(fr);
+}
+
+function _beep(type){
+  if(!_actx)try{_actx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}
+  if(!_actx)return;
+  try{
+    var o=_actx.createOscillator(),g=_actx.createGain(),t=_actx.currentTime;
+    o.connect(g);g.connect(_actx.destination);
+    var cf={ok:[[880,0],[1100,.1],.25,.3],out:[[660,0],[880,.12],.2,.35],
+      dup:[[660,0],null,.2,.25],blk:[[300,0],[240,.1],.2,.35],err:[[220,0],[180,.1],.25,.4]};
+    var c=cf[type]||cf.err;
+    o.frequency.setValueAtTime(c[0][0],t+c[0][1]);if(c[1])o.frequency.setValueAtTime(c[1][0],t+c[1][1]);
+    g.gain.setValueAtTime(c[2],t);g.gain.exponentialRampToValueAtTime(0.001,t+c[3]);
+    o.start(t);o.stop(t+c[3]);
+  }catch(e){}
+}
+function _vib(p){try{if(navigator.vibrate)navigator.vibrate(p);}catch(e){}}
+function toast(msg,type){
+  var c={ok:'#10b981',err:'#ef4444',warn:'#f59e0b',info:'#3b82f6'};
+  var t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:2.5rem;left:50%;transform:translateX(-50%);background:'+(c[type]||c.info)+';color:#fff;padding:.45rem .9rem;border-radius:.5rem;font-size:.75rem;font-weight:700;z-index:9999;pointer-events:none;white-space:nowrap';
+  t.textContent=msg;document.body.appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.remove();},2500);
+}
+
+window.addEventListener('online',function(){_online=true;_e('ofl').style.display='none';_setSbar('ready',Object.keys(_reg).length);flushQueue();});
+window.addEventListener('offline',function(){_online=false;_e('ofl').style.display='block';_setSbar('offline');});
+
+// ════════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════════
+window.addEventListener('load', function() {
+  GAS_URL = _ls.get(KEY_URL) || '';
+  _queue  = _loadQ();
+  _ciMap  = _loadCi();
+  _updSyncBtn();
+
+  if (!GAS_URL) {
+    showSetup();
+  } else {
+    var st = _loadReg();
+    if (st&&st.length) {
+      _buildMap(st); _ciMap=_loadCi(); _ready=true;
+      _setSbar('ready',st.length); _e('ci-tot').textContent=st.length;
+    }
+    loadCache(false);
+  }
+  initCam();
+});
+</script>
+</body>
+</html>
